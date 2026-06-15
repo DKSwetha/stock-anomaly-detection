@@ -12,7 +12,7 @@ import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 import joblib
 
-from ingest import TICKERS, load_raw_data
+from .ingest import TICKERS, load_raw_data
 
 
 # ── Configuration ──────────────────────────────────────────────────────────────
