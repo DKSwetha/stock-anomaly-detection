@@ -1,8 +1,8 @@
 """
 src/data/ingest.py
 ------------------
-Downloads historical OHLCV stock data from Yahoo Finance
-and saves it as a CSV file in the data/raw/ directory.
+Downloads historical OHLCV stock data for a basket of tickers
+from Yahoo Finance and saves each as a CSV in data/raw/.
 """
 
 import os
@@ -11,51 +11,61 @@ import pandas as pd
 
 
 # ── Configuration ──────────────────────────────────────────────────────────────
-TICKER    = "AAPL"          # Stock symbol to download
-START     = "2018-01-01"    # Training data start date
-END       = "2024-01-01"    # Training data end date
-RAW_DIR   = "data/raw"      # Folder where raw CSVs are saved
+# A diverse basket spanning tech, finance, energy, retail, healthcare, etc.
+# Training on varied sectors helps the model learn general "normal sequence"
+# behavior instead of memorizing one company's price levels.
+TICKERS = [
+    "AAPL", "MSFT", "GOOGL", "AMZN", "META",   # Tech
+    "JPM", "BAC", "GS",                         # Finance
+    "XOM", "CVX",                               # Energy
+    "WMT", "TGT", "COST",                       # Retail
+    "JNJ", "PFE", "UNH",                        # Healthcare
+    "DIS", "NKE",                               # Consumer
+    "TSLA", "NVDA"                              # High-volatility tech
+]
+
+START   = "2018-01-01"
+END     = "2024-01-01"
+RAW_DIR = "data/raw"
 # ───────────────────────────────────────────────────────────────────────────────
 
 
 def download_stock_data(ticker: str, start: str, end: str) -> pd.DataFrame:
     """
-    Download OHLCV data for a given ticker from Yahoo Finance.
+    Download OHLCV data for a single ticker from Yahoo Finance.
+
+    Returns:
+        DataFrame with columns [Open, High, Low, Close, Volume], or
+        an empty DataFrame if the download failed.
     """
-    print(f"[INFO] Downloading data for {ticker} from {start} to {end} ...")
-    df = yf.download(ticker, start=start, end=end, auto_adjust=True)
+    print(f"[INFO] Downloading {ticker} ({start} -> {end}) ...")
+    df = yf.download(ticker, start=start, end=end, auto_adjust=True, progress=False)
 
     if df.empty:
-        raise ValueError(f"No data returned for ticker '{ticker}'.")
+        print(f"[WARN] No data returned for '{ticker}'. Skipping.")
+        return df
 
     # Flatten multi-level columns if present (newer yfinance versions)
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
-    # Keep only the 5 core OHLCV columns
     df = df[["Open", "High", "Low", "Close", "Volume"]]
     df.index.name = "Date"
 
-    print(f"[INFO] Downloaded {len(df)} rows  |  {df.shape[1]} features")
-    print(df.tail(3))
+    print(f"[INFO] {ticker}: {len(df)} rows")
     return df
 
 
 def save_raw_data(df: pd.DataFrame, ticker: str, raw_dir: str = RAW_DIR) -> str:
-    """
-    Save the DataFrame to data/raw/<TICKER>.csv
-    """
+    """Save a single ticker's DataFrame to data/raw/<TICKER>.csv"""
     os.makedirs(raw_dir, exist_ok=True)
     path = os.path.join(raw_dir, f"{ticker}.csv")
     df.to_csv(path)
-    print(f"[INFO] Raw data saved → {path}")
     return path
 
 
 def load_raw_data(ticker: str, raw_dir: str = RAW_DIR) -> pd.DataFrame:
-    """
-    Load previously saved raw CSV back into a DataFrame.
-    """
+    """Load a previously saved raw CSV back into a DataFrame."""
     path = os.path.join(raw_dir, f"{ticker}.csv")
 
     if not os.path.exists(path):
@@ -63,21 +73,36 @@ def load_raw_data(ticker: str, raw_dir: str = RAW_DIR) -> pd.DataFrame:
 
     df = pd.read_csv(path, index_col=0, parse_dates=True)
     df.index.name = "Date"
-
-    print(f"[INFO] Loaded {len(df)} rows from {path}")
     return df
+
+
+def download_all(tickers: list[str] = TICKERS, start: str = START, end: str = END) -> list[str]:
+    """
+    Download and save raw data for every ticker in the basket.
+
+    Returns:
+        List of tickers that were successfully downloaded and saved.
+    """
+    successful = []
+
+    for ticker in tickers:
+        df = download_stock_data(ticker, start, end)
+        if df.empty:
+            continue
+        save_raw_data(df, ticker)
+        successful.append(ticker)
+
+    print(f"\n[INFO] Successfully downloaded {len(successful)}/{len(tickers)} tickers")
+    print(f"[INFO] Tickers: {successful}")
+    return successful
 
 
 # ── Quick smoke-test when run directly ─────────────────────────────────────────
 if __name__ == "__main__":
-    df = download_stock_data(TICKER, START, END)
-    save_raw_data(df, TICKER)
+    successful = download_all()
 
-    # Verify the round-trip load works
-    df_loaded = load_raw_data(TICKER)
-    print("\n[CHECK] Data types:")
-    print(df_loaded.dtypes)
-    print("\n[CHECK] Missing values:")
-    print(df_loaded.isnull().sum())
-    print("\n[CHECK] Basic stats:")
-    print(df_loaded.describe().round(2))
+    # Sanity check on one ticker
+    if successful:
+        sample = load_raw_data(successful[0])
+        print(f"\n[CHECK] Sample ticker: {successful[0]}")
+        print(sample.describe().round(2))

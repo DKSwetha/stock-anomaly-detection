@@ -1,0 +1,23 @@
+# --- Data & preprocessing ---
+yfinance
+pandas
+numpy
+scikit-learn
+joblib
+
+# --- Modeling ---
+torch
+mlflow
+
+# --- API & Dashboard ---
+fastapi
+uvicorn
+streamlit
+plotly
+
+# --- Monitoring ---
+evidently
+
+# --- Utilities ---
+matplotlib
+seaborn
