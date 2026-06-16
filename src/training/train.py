@@ -37,8 +37,6 @@ MODEL_PATH   = os.path.join(MODEL_DIR, "lstm_autoencoder.pt")
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # ───────────────────────────────────────────────────────────────────────────────
-
-
 def get_dataloaders(batch_size: int = BATCH_SIZE):
     """
     Load the combined preprocessed windows and wrap them in DataLoaders.
@@ -161,43 +159,7 @@ def train_model():
     return model, best_val_loss
 
 
-# ── Compute reconstruction error threshold (for anomaly detection later) ────────
-def compute_threshold(model, loader, percentile: float = 95.0):
-    """
-    Compute a reconstruction-error threshold from the test set.
-
-    Windows with error above this threshold are considered anomalous.
-    Using a high percentile (e.g. 95th) of "normal" reconstruction
-    errors as the cutoff is a common, simple approach.
-    """
-    model.eval()
-    errors = []
-
-    with torch.no_grad():
-        for (batch,) in loader:
-            batch = batch.to(DEVICE)
-            reconstruction = model(batch)
-            # Per-window MSE (mean over time steps and features)
-            batch_errors = torch.mean((reconstruction - batch) ** 2, dim=(1, 2))
-            errors.extend(batch_errors.cpu().numpy().tolist())
-
-    errors = np.array(errors)
-    threshold = np.percentile(errors, percentile)
-    print(f"[INFO] Reconstruction error - mean: {errors.mean():.6f}, "
-          f"std: {errors.std():.6f}, {percentile}th percentile: {threshold:.6f}")
-    return threshold
-
-
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     model, best_val_loss = train_model()
 
-    # Compute and save anomaly threshold using the test set
-    _, test_loader = get_dataloaders()
-    threshold = compute_threshold(model, test_loader, percentile=95.0)
-
-    threshold_path = os.path.join(MODEL_DIR, "threshold.txt")
-    with open(threshold_path, "w") as f:
-        f.write(str(threshold))
-
-    print(f"[INFO] Anomaly threshold saved -> {threshold_path}")
