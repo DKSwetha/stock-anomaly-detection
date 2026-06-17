@@ -10,7 +10,7 @@ Endpoints:
 
 import os
 import sys
-
+from fastapi import Query
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -41,7 +41,7 @@ def health_check():
 
 
 @app.get("/predict/{ticker}")
-def predict(ticker: str):
+def predict(ticker: str, lookback_days: int = Query(default=90)):
     """
     Run anomaly detection for the given ticker.
 

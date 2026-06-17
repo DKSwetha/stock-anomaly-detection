@@ -46,8 +46,8 @@ MODEL_PATH     = "models/lstm_autoencoder.pt"
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+Z_THRESHOLD     = 1.5
 LOOKBACK_DAYS  = 90     # calendar days to fetch (~60 trading days)
-Z_THRESHOLD    = 1.5    # flag if error > mean + Z * std of this ticker's errors
 MIN_ERROR_FLOOR = 0.008 # never flag windows with very low absolute error
 # ───────────────────────────────────────────────────────────────────────────────
 
@@ -138,29 +138,11 @@ def run_inference(model: LSTMAutoencoder, windows: np.ndarray) -> tuple[np.ndarr
 
 
 def detect_anomalies(errors: np.ndarray) -> tuple[np.ndarray, float, str]:
-    """
-    Flag anomalies using z-score thresholding.
-
-    A window is anomalous if BOTH:
-      - error > mean + Z_THRESHOLD * std  (statistically unusual)
-      - error > MIN_ERROR_FLOOR           (meaningfully large in absolute terms)
-
-    Returns:
-        is_anomaly    : boolean array
-        threshold_used: the actual cutoff value applied
-        method        : description of method used
-    """
     mean = np.mean(errors)
     std  = np.std(errors)
-
-    # Z-score based threshold: mean + 1.5 * std
-    z_threshold = mean + Z_THRESHOLD * std
-
-    # Combine: must exceed both z-score threshold AND minimum floor
-    is_anomaly = (errors > z_threshold) & (errors > MIN_ERROR_FLOOR)
-
-    return is_anomaly, float(z_threshold), "z-score (mean + 1.5*std) with min error floor"
-
+    threshold = mean + Z_THRESHOLD * std
+    is_anomaly = (errors > threshold) & (errors > MIN_ERROR_FLOOR)
+    return is_anomaly, float(threshold), "z-score (mean + 1.5*std) with min error floor"
 
 def per_feature_error(window: np.ndarray, reconstruction: np.ndarray) -> dict:
     """
