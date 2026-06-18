@@ -10,14 +10,12 @@ Endpoints:
 
 import os
 import sys
-from fastapi import Query
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 
 from src.inference.predict import analyze_ticker
-
 
 app = FastAPI(
     title="Stock Anomaly Detection API",
@@ -33,15 +31,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 @app.get("/")
 def health_check():
     """Simple health check endpoint."""
     return {"status": "ok", "message": "Stock Anomaly Detection API is running"}
 
-
 @app.get("/predict/{ticker}")
-def predict(ticker: str, lookback_days: int = Query(default=90)):
+def predict(ticker: str):
     """
     Run anomaly detection for the given ticker.
 
@@ -62,7 +58,6 @@ def predict(ticker: str, lookback_days: int = Query(default=90)):
         raise HTTPException(status_code=500, detail=f"Internal error: {e}")
 
     return result
-
 
 # ── Run with: uvicorn api.main:app --reload ──────────────────────────────────────
 if __name__ == "__main__":
