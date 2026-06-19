@@ -4,7 +4,10 @@ dashboard/app.py
 Streamlit dashboard for the Stock Anomaly Detection system.
 Connects to the FastAPI backend at localhost:8000.
 """
-
+import sys
+import os
+sys.path.append(".")
+from src.monitoring.monitor import get_drift_summary
 import streamlit as st
 import requests
 import pandas as pd
@@ -94,7 +97,7 @@ st.markdown("""
   }
   .stat-card .stat-sub { font-size: 0.78rem; color: #6b7280; margin-top: 0.25rem; }
   .stat-card.anomaly .stat-value { color: #f87171; }
-  .stat-card.anomaly-zero .stat-value { color: #4ade80; }
+  .stat-card.anomaly-zero .stat-value { color: #4caf88; }
 
   /* ── Section labels ── */
   .section-label {
@@ -148,7 +151,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-API_BASE = "http://127.0.0.1:8000"
+API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8000")
 
 TICKER_MAP = {
     "AAPL":  "Apple Inc.",
@@ -253,7 +256,6 @@ if analyze:
     last_close  = prices["Close"][-1]
     period_ret  = ((last_close - first_close) / first_close) * 100
     ret_sign    = "+" if period_ret >= 0 else ""
-    ret_color   = "#4ade80" if period_ret >= 0 else "#f87171"
 
     # ── Stat cards ──────────────────────────────────────────────────────────────
     st.markdown(f"""
@@ -285,8 +287,13 @@ if analyze:
       </div>
       <div class="stat-card">
         <div class="stat-label"><i class="fa-solid fa-arrow-trend-up"></i> &nbsp;Period return</div>
-        <div class="stat-value" style="color:{ret_color}">{ret_sign}{period_ret:.1f}%</div>
+        <div class="stat-value">{ret_sign}{period_ret:.1f}%</div>
         <div class="stat-sub">{dates[0]} → {dates[-1]}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label"><i class="fa-solid fa-gauge"></i> &nbsp;Risk score</div>
+        <div class="stat-value" style="color:{'#f87171' if data['risk_level'] in ['Elevated','High'] else '#4caf88'}">{data['risk_score']}/100</div>
+        <div class="stat-sub">{data['risk_level']} risk</div>
       </div>
     </div>
     """, unsafe_allow_html=True)
@@ -300,7 +307,7 @@ if analyze:
     # High — warm amber/orange line (top of band)
     fig_price.add_trace(go.Scatter(
         x=dates, y=prices["High"], mode="lines", name="High",
-        line=dict(color="#4ade80", width=1.2),
+        line=dict(color="#4caf88", width=1.2),
         hovertemplate="High: $%{y:.2f}<extra></extra>",
     ))
     # Low — cool cyan line (bottom of band), fills up to High
@@ -381,10 +388,10 @@ if analyze:
         hovertemplate="<b>%{x}</b><br>Error: %{y:.6f}<extra></extra>",
     ))
     fig_err.add_hline(
-        y=threshold, line_color="#4ade80", line_dash="dash", line_width=1.5,
+        y=threshold, line_color="#4caf88", line_dash="dash", line_width=1.5,
         annotation_text=f"Threshold  {threshold:.5f}",
         annotation_position="top right",
-        annotation_font=dict(color="#4ade80", size=10, family="Space Grotesk"),
+        annotation_font=dict(color="#4caf88", size=10, family="Space Grotesk"),
     )
     fig_err.update_layout(
         height=240, margin=dict(l=0, r=0, t=12, b=0),
@@ -457,6 +464,63 @@ if analyze:
           price-volume patterns are within the model's learned range of normal behavior
           for this period.
         </div>""", unsafe_allow_html=True)
+
+    # ── Monitoring: Drift Detection ────────────────────────────────────────────
+    st.markdown("""<div class="section-label">
+    <i class="fa-solid fa-shield-halved"></i> Data drift monitoring
+    </div>""", unsafe_allow_html=True)
+
+    with st.spinner("Running drift analysis..."):
+        try:
+            drift = get_drift_summary(ticker)
+
+            drift_color = "#F472B6" if drift["dataset_drift"] else "#4caf88"
+            drift_label = "Drift Detected" if drift["dataset_drift"] else "No Drift"
+            drift_icon  = "fa-triangle-exclamation" if drift["dataset_drift"] else "fa-circle-check"
+
+            feat_rows = ""
+            for feat, drifted in drift["feature_drift"].items():
+                status_color = "#F472B6" if drifted else "#4caf88"
+                status_text  = "DRIFT" if drifted else "OK"
+                feat_rows += f"""<tr>
+                  <td>{feat}</td>
+                  <td style="color:{status_color};font-weight:600">{status_text}</td>
+                </tr>"""
+
+            st.markdown(f"""
+            <div style="display:flex;gap:1rem;margin-bottom:1rem;flex-wrap:wrap">
+              <div class="stat-card">
+                <div class="stat-label"><i class="fa-solid {drift_icon}"></i> &nbsp;Overall status</div>
+                <div class="stat-value" style="color:{drift_color};font-size:1.1rem">{drift_label}</div>
+                <div class="stat-sub">{drift['n_drifted_cols']} of {len(drift['feature_drift'])} features drifted</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label"><i class="fa-solid fa-percent"></i> &nbsp;Drift share</div>
+                <div class="stat-value">{drift['share_drifted']:.0%}</div>
+                <div class="stat-sub">of features show distribution shift</div>
+              </div>
+            </div>
+            <table class="anomaly-table" style="max-width:300px">
+              <thead><tr>
+                <th>Feature</th>
+                <th>Status</th>
+              </tr></thead>
+              <tbody>{feat_rows}</tbody>
+            </table>
+            <div class="chart-explain" style="margin-top:0.75rem">
+              <strong>What this shows:</strong> Compares the statistical distribution
+              of current market data against the training data distribution using
+              Evidently AI. Drift in a feature means its current value range or
+              shape differs significantly from what the model learned as normal —
+              a signal that the model may need retraining.
+            </div>
+            """, unsafe_allow_html=True)
+
+        except Exception as e:
+            st.markdown(f"""<div class="chart-explain">
+                     <i class="fa-solid fa-circle-info"></i> &nbsp;
+                     Drift monitoring unavailable: {e}
+                   </div>""", unsafe_allow_html=True)
 
 else:
     st.markdown("""

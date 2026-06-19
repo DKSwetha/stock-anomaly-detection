@@ -144,6 +144,63 @@ def detect_anomalies(errors: np.ndarray) -> tuple[np.ndarray, float, str]:
     is_anomaly = (errors > threshold) & (errors > MIN_ERROR_FLOOR)
     return is_anomaly, float(threshold), "z-score (mean + 1.5*std) with min error floor"
 
+def compute_risk_score(errors: np.ndarray, is_anomaly: np.ndarray, threshold: float) -> dict:
+    """
+    Compute a composite 0-100 risk score from three factors:
+
+    1. Frequency : what fraction of windows are anomalous
+    2. Severity  : how far above threshold the anomalous errors are, on average
+    3. Recency   : whether anomalies cluster in the most recent windows
+
+    Returns:
+        dict with risk_score, risk_level, and the three component scores
+    """
+    n = len(errors)
+    n_anomalies = int(is_anomaly.sum())
+
+    # --- Frequency component (0-100) ---
+    frequency_pct = (n_anomalies / n) * 100
+    frequency_score = min(frequency_pct * 2.5, 100)  # scale so 40% anomalies = 100
+
+    # --- Severity component (0-100) ---
+    if n_anomalies > 0:
+        anomaly_errors = errors[is_anomaly]
+        avg_excess = np.mean((anomaly_errors - threshold) / threshold)  # relative excess
+        severity_score = min(avg_excess * 100, 100)
+    else:
+        severity_score = 0.0
+
+    # --- Recency component (0-100) ---
+    # Weight anomalies in the most recent third of windows more heavily
+    recent_third = n // 3
+    recent_anomalies = is_anomaly[-recent_third:] if recent_third > 0 else is_anomaly
+    recency_score = (recent_anomalies.sum() / max(len(recent_anomalies), 1)) * 100
+
+    # --- Composite (weighted average) ---
+    risk_score = (
+        0.4 * frequency_score +
+        0.35 * severity_score +
+        0.25 * recency_score
+    )
+    risk_score = round(min(max(risk_score, 0), 100), 1)
+
+    if risk_score < 20:
+        level = "Low"
+    elif risk_score < 50:
+        level = "Moderate"
+    elif risk_score < 75:
+        level = "Elevated"
+    else:
+        level = "High"
+
+    return {
+        "risk_score": risk_score,
+        "risk_level": level,
+        "frequency_score": round(frequency_score, 1),
+        "severity_score": round(severity_score, 1),
+        "recency_score": round(recency_score, 1),
+    }
+
 def per_feature_error(window: np.ndarray, reconstruction: np.ndarray) -> dict:
     """
     Compute per-feature reconstruction error for a single window.
@@ -153,7 +210,6 @@ def per_feature_error(window: np.ndarray, reconstruction: np.ndarray) -> dict:
     """
     per_feat_mse = np.mean((reconstruction - window) ** 2, axis=0)
     return {feat: float(err) for feat, err in zip(FEATURES, per_feat_mse)}
-
 
 def analyze_ticker(ticker: str, lookback_days: int = LOOKBACK_DAYS) -> dict:
     """
@@ -182,6 +238,7 @@ def analyze_ticker(ticker: str, lookback_days: int = LOOKBACK_DAYS) -> dict:
 
     reconstructions, errors = run_inference(model, windows)
     is_anomaly, threshold, method = detect_anomalies(errors)
+    risk = compute_risk_score(errors, is_anomaly, threshold)
 
     print(f"[INFO] Error stats — mean: {np.mean(errors):.6f}, "
           f"std: {np.std(errors):.6f}, threshold: {threshold:.6f}")
@@ -214,6 +271,9 @@ def analyze_ticker(ticker: str, lookback_days: int = LOOKBACK_DAYS) -> dict:
         "is_anomaly"          : is_anomaly.tolist(),
         "anomaly_details"     : anomaly_details,
         "n_anomalies"         : int(is_anomaly.sum()),
+        "risk_score"          : risk["risk_score"],
+        "risk_level"          : risk["risk_level"],
+        "risk_breakdown"      : risk,
     }
 
 
