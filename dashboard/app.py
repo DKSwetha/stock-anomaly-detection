@@ -11,17 +11,8 @@ import streamlit as st
 import requests
 import pandas as pd
 import plotly.graph_objects as go
+from src.monitoring.monitor import get_drift_summary
 
-try:
-    sys.path.append(".")
-    from src.monitoring.monitor import get_drift_summary
-    drift = get_drift_summary(ticker)
-    ...
-except Exception as e:
-    st.markdown(f"""<div class="chart-explain">
-      <i class="fa-solid fa-circle-info"></i> &nbsp;
-      Drift monitoring unavailable: {e}
-    </div>""", unsafe_allow_html=True)
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(

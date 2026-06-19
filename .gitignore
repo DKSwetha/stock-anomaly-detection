@@ -5,7 +5,5 @@
 mlruns/
 *.egg-info/
 .DS_Store
-data/raw/
 data/processed/
-data/scalers/
 .idea/
