@@ -151,7 +151,10 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ── Constants ──────────────────────────────────────────────────────────────────
-API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8000")
+try:
+    API_BASE = st.secrets["API_BASE"]
+except (FileNotFoundError, KeyError):
+    API_BASE = os.getenv("API_BASE", "http://127.0.0.1:8000")
 
 TICKER_MAP = {
     "AAPL":  "Apple Inc.",
