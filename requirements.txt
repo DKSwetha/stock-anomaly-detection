@@ -1,23 +1,24 @@
 # --- Data & preprocessing ---
-yfinance
-pandas
-numpy
-scikit-learn
-joblib
+yfinance==1.4.1
+pandas==2.3.3
+numpy==2.4.6
+scikit-learn==1.9.0
+joblib==1.5.3
 
 # --- Modeling ---
-torch
-mlflow
+torch==2.12.0
+mlflow==3.13.0
 
 # --- API & Dashboard ---
-fastapi
-uvicorn
-streamlit
-plotly
+fastapi==0.137.0
+uvicorn==0.49.0
+streamlit==1.58.0
+plotly==5.24.1
 
 # --- Monitoring ---
-evidently
+evidently==0.7.21
 
 # --- Utilities ---
-matplotlib
-seaborn
+matplotlib==3.10.9
+seaborn==0.13.2
+requests==2.34.2
