@@ -1,6 +1,8 @@
 # Stock Anomaly Detection
 
-An end-to-end machine learning system that detects anomalies in stock market data using an LSTM Autoencoder. The system fetches live OHLCV data for any stock ticker, runs inference through a trained model, and surfaces anomalous price-volume patterns through an interactive dashboard.
+An end-to-end machine learning system that detects anomalies in stock market data using an LSTM Autoencoder. The system fetches live OHLCV data for any stock ticker, runs inference through a trained model, and surfaces anomalous price-volume patterns through an interactive dashboard — complete with risk scoring and data drift monitoring.
+
+**Live demo:** [stock-anomaly-detection.streamlit.app](https://stock-anomaly-detection-3gvzfvcnmmws72you9e86g.streamlit.app/)
 
 ---
 
@@ -22,7 +24,8 @@ yfinance (live data)
   Streamlit Dashboard
   (price chart, volume,
    reconstruction error,
-   anomaly breakdown)
+   risk score, anomaly
+   breakdown)
         |
         v
   Evidently AI
@@ -43,14 +46,15 @@ yfinance (live data)
 | Dashboard | `Streamlit`, `Plotly` |
 | Monitoring | `Evidently AI` |
 | Containerization | `Docker`, `docker-compose` |
+| Deployment | `Render` (API), `Streamlit Cloud` (dashboard) |
 
 ---
 
 ## How it works
 
-The core idea is reconstruction-error anomaly detection. An LSTM Autoencoder is trained on 6 years of normalized OHLCV data across 20 diverse stock tickers. It learns to compress and reconstruct "normal" 30-day price-volume sequences. At inference time, any sequence that the model reconstructs poorly — measured by mean squared error — is flagged as an anomaly.
+The core idea is reconstruction-error anomaly detection. An LSTM Autoencoder is trained on 6 years of normalized OHLCV data across 20 diverse stock tickers spanning tech, finance, energy, retail, and healthcare. It learns to compress and reconstruct "normal" 30-day price-volume sequences. At inference time, any sequence the model reconstructs poorly — measured by mean squared error — is flagged as an anomaly.
 
-A z-score threshold is computed fresh for each ticker: windows whose error exceeds `mean + 1.5 * std` of that ticker's own reconstruction errors are flagged. Per-feature error breakdown identifies whether the anomaly is driven by price (Open/High/Low/Close) or Volume.
+A z-score threshold is computed fresh for each ticker: windows whose error exceeds `mean + 1.5 * std` of that ticker's own reconstruction errors are flagged. A per-feature error breakdown identifies whether the anomaly is driven by price (Open/High/Low/Close) or Volume. A composite **risk score (0-100)** combines anomaly frequency, severity, and recency into a single interpretable number. **Evidently AI** separately monitors whether a ticker's current data distribution has statistically drifted from the training distribution, flagging when the model's notion of "normal" may be outdated.
 
 ---
 
@@ -59,33 +63,29 @@ A z-score threshold is computed fresh for each ticker: windows whose error excee
 ```
 stock-anomaly-detection/
 ├── api/
-│   └── main.py                 # FastAPI endpoint
+│   └── main.py                  # FastAPI endpoint
 ├── dashboard/
-│   └── app.py                  # Streamlit dashboard
+│   └── app.py                   # Streamlit dashboard
 ├── data/
-│   ├── raw/                    # Downloaded OHLCV CSVs
-│   ├── processed/              # Windowed numpy arrays
-│   └── scalers/                # Per-ticker MinMaxScalers
+│   ├── raw/                     # Downloaded OHLCV CSVs (20 tickers)
+│   └── scalers/                 # Per-ticker MinMaxScalers
 ├── docker/
 │   ├── Dockerfile.api
 │   └── Dockerfile.dashboard
 ├── models/
-│   └── lstm_autoencoder.pt     # Trained model weights
-├── monitoring/
-│   └── reports/                # Evidently HTML drift reports
-├── notebooks/                  # EDA and experimentation
+│   └── lstm_autoencoder.pt      # Trained model weights
 ├── src/
 │   ├── data/
-│   │   ├── ingest.py           # yfinance data download
-│   │   └── preprocess.py       # Normalization and windowing
+│   │   ├── ingest.py             # yfinance multi-ticker download
+│   │   └── preprocess.py         # Normalization and windowing
 │   ├── model/
-│   │   └── autoencoder.py      # LSTM Autoencoder architecture
+│   │   └── autoencoder.py        # LSTM Autoencoder architecture
 │   ├── training/
-│   │   └── train.py            # Training loop + MLflow tracking
+│   │   └── train.py              # Training loop + MLflow tracking
 │   ├── inference/
-│   │   └── predict.py          # Live inference pipeline
+│   │   └── predict.py            # Live inference + risk scoring
 │   └── monitoring/
-│       └── monitor.py          # Evidently drift detection
+│       └── monitor.py            # Evidently drift detection
 ├── docker-compose.yml
 ├── requirements.txt
 └── README.md
@@ -147,6 +147,19 @@ API:       `http://localhost:8000`
 
 ---
 
+## Deployment
+
+The app is deployed across two free-tier services:
+
+| Component | Platform |
+|---|---|
+| FastAPI backend | [Render](https://render.com) |
+| Streamlit dashboard | [Streamlit Community Cloud](https://share.streamlit.io) |
+
+The dashboard reads the API's base URL from Streamlit secrets (`API_BASE`), falling back to `localhost` for local development. Docker images are also provided for fully self-contained local or on-prem deployment.
+
+---
+
 ## Monitoring
 
 Generate a drift report for any ticker:
@@ -155,7 +168,7 @@ Generate a drift report for any ticker:
 python -m src.monitoring.monitor AAPL
 ```
 
-The HTML report is saved to `monitoring/reports/AAPL_drift_report.html` and compares the current market data distribution against the training distribution using Evidently AI.
+Compares the current market data distribution against the training distribution using Evidently AI. The same check runs live in the dashboard's "Data drift monitoring" section after each analysis.
 
 ---
 
@@ -176,25 +189,27 @@ The HTML report is saved to `monitoring/reports/AAPL_drift_report.html` and comp
 
 ---
 
-## Anomaly Detection Logic
+## Anomaly Detection & Risk Scoring Logic
 
 1. Fetch last 90 days of OHLCV data for the selected ticker
-2. Fit a fresh MinMaxScaler on this data (per-ticker normalization)
+2. Fit a fresh MinMaxScaler on this data (per-ticker normalization, consistent with training)
 3. Create overlapping 30-day windows
 4. Run each window through the trained autoencoder
 5. Compute per-window MSE (reconstruction error)
 6. Flag windows where `error > mean + 1.5 * std` AND `error > 0.008`
 7. For flagged windows, break down error by feature to identify the primary driver
+8. Combine anomaly frequency, severity, and recency into a 0-100 risk score
 
 ---
 
 ## Sample Output
 
 ```
-Ticker  : AAPL
-Windows : 32  (30-day sequences)
-Threshold: 0.01741  (z-score based)
-Anomalies: 3
+Ticker     : AAPL
+Windows    : 32  (30-day sequences)
+Threshold  : 0.01741  (z-score based)
+Anomalies  : 3
+Risk Score : 58.2 / 100  (Elevated)
 
 2026-06-04 | error=0.017818 | top_feature=Volume
 2026-06-05 | error=0.018871 | top_feature=Volume
